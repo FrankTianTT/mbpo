@@ -29,6 +29,11 @@ Configuration files can be found in [`examples/config/`](examples/config).
 mbpo run_local examples.development --config=examples.config.halfcheetah.0 --gpus=1 --trial-gpus=1
 ```
 
+在没有gpu的机器上，使用
+```
+mbpo run_local examples.development --config=examples.config.halfcheetah.0 --gpus=0 --trial-gpus=0
+```
+
 Currently only running locally is supported.
 
 #### New environments

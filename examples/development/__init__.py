@@ -17,12 +17,12 @@ def get_trainable_class(*args, **kwargs):
 #     return variant_spec
 
 def get_params_from_file(filepath, params_name='params'):
-	import importlib
-	from dotmap import DotMap
-	module = importlib.import_module(filepath)
-	params = getattr(module, params_name)
-	params = DotMap(params)
-	return params
+    import importlib
+    from dotmap import DotMap
+    module = importlib.import_module(filepath)
+    params = getattr(module, params_name)
+    params = DotMap(params)
+    return params
 
 def get_variant_spec(command_line_args, *args, **kwargs):
     from .base import get_variant_spec
