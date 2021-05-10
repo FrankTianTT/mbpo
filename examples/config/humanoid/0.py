@@ -21,7 +21,7 @@ params = {
 
         'model_train_freq': 1000,
         'model_retain_epochs': 5,
-        'rollout_batch_size': 100e3,
+        'rollout_batch_size': 10e3,
         'deterministic': False,
         'num_networks': 7,
         'num_elites': 5,

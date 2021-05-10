@@ -34,6 +34,11 @@ causal-mbpo run_local examples.development --config=examples.config.halfcheetah.
 causal-mbpo run_local examples.development --config=examples.config.halfcheetah.0 --gpus=0 --trial-gpus=0
 ```
 
+或者尝试一个比较简单的
+```
+causal-mbpo run_local examples.development --config=examples.config.inverted_pendulum.0 --gpus=1 --trial-gpus=1
+```
+
 Currently only running locally is supported.
 
 #### New environments
