@@ -659,16 +659,16 @@ if __name__ == "__main__":
     targets = np.ones([5000, obs_dim + rew_dim])
 
     # print(inputs.shape)
-    casual_model.train(inputs, targets, holdout_ratio=0.1)
+    # casual_model.train(inputs, targets, holdout_ratio=0.1)
 
-    # outputs = casual_model.predict(inputs, factored=True)
-    # print(np.array(outputs).shape)
-    # # (2, 7, 5000, 11)
-    #
-    # outputs = casual_model.predict(inputs, factored=False)
-    # print(np.array(outputs).shape)
-    # # (2, 5000, 11)
-    #
-    # outputs = casual_model.predict(np.ones([7, obs_dim + rew_dim, 5000, obs_dim + act_dim]))
-    # print(np.array(outputs).shape)
-    # # (2, 7, 5000, 11)
+    outputs = casual_model.predict(inputs, factored=True)
+    print(np.array(outputs).shape)
+    # (2, 7, 5000, 11)
+
+    outputs = casual_model.predict(inputs, factored=False)
+    print(np.array(outputs).shape)
+    # (2, 5000, 11)
+
+    outputs = casual_model.predict(np.ones([7, obs_dim + rew_dim, 5000, obs_dim + act_dim]))
+    print(np.array(outputs).shape)
+    # (2, 7, 5000, 11)
