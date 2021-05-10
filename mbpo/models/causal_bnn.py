@@ -83,6 +83,7 @@ class CausalBNN:
             self.num_elites = params['num_elites']  # params.get('num_elites', 1)
             self.obs_dim = obs_dim
             self.rew_dim = rew_dim
+            self.single_dim = obs_dim + rew_dim
             self.model_loaded = False
 
         if self.num_nets == 1:
@@ -173,16 +174,14 @@ class CausalBNN:
         self.end_act_name = self.layers[-1].get_activation(as_func=False)
         self.layers[-1].unset_activation()
 
-        single_dim = self.obs_dim + self.rew_dim
-
         # Construct all variables.
         with self.sess.as_default():
             with tf.variable_scope(self.name):
                 self.scaler = TensorStandardScaler(self.layers[0].get_input_dim())
-                self.max_logvar = tf.Variable(np.ones([single_dim, 1, 1]) / 2.,
+                self.max_logvar = tf.Variable(np.ones([self.single_dim, 1, 1]) / 2.,
                                               dtype=tf.float32,
                                               name="max_log_var")
-                self.min_logvar = tf.Variable(-np.ones([single_dim, 1, 1]) * 10.,
+                self.min_logvar = tf.Variable(-np.ones([self.single_dim, 1, 1]) * 10.,
                                               dtype=tf.float32,
                                               name="min_log_var")
                 for i, layer in enumerate(self.layers):
@@ -198,11 +197,11 @@ class CausalBNN:
             self.optimizer = optimizer(**optimizer_args)  # 不知道为啥这里重新赋值了一遍
             # 和input size相同的placeholder，其中第二维是batch size，这里留空
             self.sy_train_in = tf.placeholder(dtype=tf.float32,
-                                              shape=[self.num_nets, single_dim, None, self.layers[0].get_input_dim()],
+                                              shape=[self.num_nets, self.single_dim, None, self.layers[0].get_input_dim()],
                                               name="training_inputs")
             # 和target size相同的placeholder
             self.sy_train_targ = tf.placeholder(dtype=tf.float32,
-                                                shape=[self.num_nets, single_dim, None, 1],
+                                                shape=[self.num_nets, self.single_dim, None, 1],
                                                 name="training_targets")
             train_loss = tf.reduce_sum(self._compile_losses(self.sy_train_in, self.sy_train_targ, inc_var_loss=True))
             # print(train_loss)
@@ -227,7 +226,7 @@ class CausalBNN:
                                  tf.reduce_mean(tf.square(self.sy_pred_mean2d_fac - self.sy_pred_mean2d), axis=0)
 
             self.sy_pred_in4d = tf.placeholder(dtype=tf.float32,
-                                               shape=[self.num_nets, single_dim, None, self.layers[0].get_input_dim()],
+                                               shape=[self.num_nets, self.single_dim, None, self.layers[0].get_input_dim()],
                                                name="3D_training_inputs")
             self.sy_pred_mean4d_fac, self.sy_pred_var4d_fac = \
                 self.create_prediction_tensors(self.sy_pred_in4d, factored=True)
@@ -346,15 +345,34 @@ class CausalBNN:
         permutation = np.random.permutation(inputs.shape[0])
         inputs, holdout_inputs = inputs[permutation[num_holdout:]], inputs[permutation[:num_holdout]]
         targets, holdout_targets = targets[permutation[num_holdout:]], targets[permutation[:num_holdout]]
-        # 将holdout赋值为和[self.num_nets, 1, 1]维维度相同
-        holdout_inputs = np.tile(holdout_inputs[None], [self.num_nets, 1, 1])
+
+        holdout_inputs = np.tile(holdout_inputs[None, None], [self.num_nets, self.single_dim, 1, 1])
         holdout_targets = np.tile(holdout_targets[None], [self.num_nets, 1, 1])
+        holdout_targets = np.einsum("abc->acb", holdout_targets)
+        holdout_targets = np.expand_dims(holdout_targets, -1)
 
         print('[ BNN ] Training {} | Holdout: {}'.format(inputs.shape, holdout_inputs.shape))
         with self.sess.as_default():
             self.scaler.fit(inputs)
 
+        # idxs维度
+        # ensemble-size * all-sample-size
         idxs = np.random.randint(inputs.shape[0], size=[self.num_nets, inputs.shape[0]])
+
+        def get_inputs(from_num, to_num):
+            batch_idxs = idxs[:, from_num:to_num]
+            batch_inputs = inputs[batch_idxs]
+            batch_inputs = np.expand_dims(batch_inputs, 1)
+            batch_inputs = np.tile(batch_inputs, [1, self.single_dim, 1, 1])
+            return batch_inputs
+
+        def get_targets(from_num, to_num):
+            batch_idxs = idxs[:, from_num:to_num]
+            batch_targets = targets[batch_idxs]
+            batch_targets = np.einsum("abc->acb", batch_targets)
+            batch_targets = np.expand_dims(batch_targets, -1)
+            return batch_targets
+
         if hide_progress:
             progress = Silent()
         else:
@@ -372,10 +390,11 @@ class CausalBNN:
         grad_updates = 0
         for epoch in epoch_iter:
             for batch_num in range(int(np.ceil(idxs.shape[-1] / batch_size))):
-                batch_idxs = idxs[:, batch_num * batch_size:(batch_num + 1) * batch_size]
                 self.sess.run(
                     self.train_op,
-                    feed_dict={self.sy_train_in: inputs[batch_idxs], self.sy_train_targ: targets[batch_idxs]}
+                    feed_dict={self.sy_train_in: get_inputs(batch_num * batch_size, (batch_num + 1) * batch_size),
+                               self.sy_train_targ: get_targets(batch_num * batch_size, (batch_num + 1) * batch_size)
+                               }
                 )
                 grad_updates += 1
 
@@ -385,8 +404,8 @@ class CausalBNN:
                     losses = self.sess.run(
                         self.mse_loss,
                         feed_dict={
-                            self.sy_train_in: inputs[idxs[:, :max_logging]],
-                            self.sy_train_targ: targets[idxs[:, :max_logging]]
+                            self.sy_train_in: get_inputs(0, max_logging),
+                            self.sy_train_targ: get_targets(0, max_logging)
                         }
                     )
                     named_losses = [['M{}'.format(i), losses[i]] for i in range(len(losses))]
@@ -395,8 +414,8 @@ class CausalBNN:
                     losses = self.sess.run(
                         self.mse_loss,
                         feed_dict={
-                            self.sy_train_in: inputs[idxs[:, :max_logging]],
-                            self.sy_train_targ: targets[idxs[:, :max_logging]]
+                            self.sy_train_in: get_inputs(0, max_logging),
+                            self.sy_train_targ: get_targets(0, max_logging)
                         }
                     )
                     holdout_losses = self.sess.run(
@@ -475,20 +494,21 @@ class CausalBNN:
         """
         if len(inputs.shape) == 2:
             if factored:
-                return self.sess.run(
-                    [self.sy_pred_mean2d_fac, self.sy_pred_var2d_fac],
-                    feed_dict={self.sy_pred_in2d: inputs}
-                )
+                outputs = self.sess.run([self.sy_pred_mean2d_fac, self.sy_pred_var2d_fac],
+                                        feed_dict={self.sy_pred_in2d: inputs})
+                outputs = np.einsum("abcde->abdc", outputs)
+                return outputs
             else:
-                return self.sess.run(
-                    [self.sy_pred_mean2d, self.sy_pred_var2d],
-                    feed_dict={self.sy_pred_in2d: inputs}
-                )
+                outputs = self.sess.run([self.sy_pred_mean2d, self.sy_pred_var2d],
+                                        feed_dict={self.sy_pred_in2d: inputs})
+                outputs = np.einsum("abcd->acb", outputs)
+                return outputs
         else:
-            return self.sess.run(
-                [self.sy_pred_mean4d_fac, self.sy_pred_var4d_fac],
-                feed_dict={self.sy_pred_in4d: inputs}
-            )
+            outputs = self.sess.run([self.sy_pred_mean4d_fac, self.sy_pred_var4d_fac],
+                                    feed_dict={self.sy_pred_in4d: inputs})
+            outputs = np.einsum("abcde->abdc", outputs)
+            return outputs
+
 
     def create_prediction_tensors(self, inputs, factored=False, *args, **kwargs):
         """See predict() above for documentation.
@@ -616,7 +636,8 @@ class CausalBNN:
             var_losses = tf.reduce_mean(tf.reduce_mean(log_var, axis=-1), axis=-1)
             total_losses = mse_losses + var_losses
         else:
-            total_losses = tf.reduce_mean(tf.reduce_mean(tf.square(mean - targets), axis=-1), axis=-1)
+            total_losses = tf.reduce_mean(
+                tf.reduce_mean(tf.reduce_mean(tf.square(mean - targets), axis=-1), axis=-1), axis=-1)
 
         return total_losses
 
@@ -634,6 +655,20 @@ if __name__ == "__main__":
     casual_model.add(SingleDimFC(1, weight_decay=0.0001))
     casual_model.finalize(tf.train.AdamOptimizer, {"learning_rate": 0.001})
 
-    inputs = tf.ones([64, obs_dim + act_dim])
-    outputs = casual_model.predict(inputs)
-    print(outputs)
+    inputs = np.ones([5000, obs_dim + act_dim])
+    targets = np.ones([5000, obs_dim + rew_dim])
+
+    # print(inputs.shape)
+    casual_model.train(inputs, targets, holdout_ratio=0.1)
+
+    # outputs = casual_model.predict(inputs, factored=True)
+    # print(np.array(outputs).shape)
+    # # (2, 7, 5000, 11)
+    #
+    # outputs = casual_model.predict(inputs, factored=False)
+    # print(np.array(outputs).shape)
+    # # (2, 5000, 11)
+    #
+    # outputs = casual_model.predict(np.ones([7, obs_dim + rew_dim, 5000, obs_dim + act_dim]))
+    # print(np.array(outputs).shape)
+    # # (2, 7, 5000, 11)

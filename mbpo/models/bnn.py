@@ -25,6 +25,7 @@ class BNN:
     """Neural network models which model aleatoric uncertainty (and possibly epistemic uncertainty
     with ensembling).
     """
+
     def __init__(self, params):
         """Initializes a class instance.
 
@@ -44,7 +45,8 @@ class BNN:
         self.name = get_required_argument(params, 'name', 'Must provide name.')
         self.model_dir = params.get('model_dir', None)
 
-        print('[ BNN ] Initializing model: {} | {} networks | {} elites'.format(params['name'], params['num_networks'], params['num_elites']))
+        print('[ BNN ] Initializing model: {} | {} networks | {} elites'.format(params['name'], params['num_networks'],
+                                                                                params['num_elites']))
         if params.get('sess', None) is None:
             config = tf.ConfigProto()
             # config.gpu_options.allow_growth = True
@@ -78,13 +80,15 @@ class BNN:
             self.num_elites = params['num_elites']
         else:
             self.num_nets = params.get('num_networks', 1)
-            self.num_elites = params['num_elites'] #params.get('num_elites', 1)
+            self.num_elites = params['num_elites']  # params.get('num_elites', 1)
             self.model_loaded = False
 
         if self.num_nets == 1:
             print("Created a neural network with variance predictions.")
         else:
-            print("Created an ensemble of {} neural networks with variance predictions | Elites: {}".format(self.num_nets, self.num_elites))
+            print(
+                "Created an ensemble of {} neural networks with variance predictions | Elites: {}".format(self.num_nets,
+                                                                                                          self.num_elites))
 
     @property
     def is_probabilistic(self):
@@ -121,7 +125,7 @@ class BNN:
         # self.num_nets是ensemble数量，ensemble由fc模块完成
         layer.set_ensemble_size(self.num_nets)
         if len(self.layers) > 0:
-            layer.set_input_dim(self.layers[-1].get_output_dim())   # 自动计算input size
+            layer.set_input_dim(self.layers[-1].get_output_dim())  # 自动计算input size
         self.layers.append(layer.copy())
 
     def pop(self):
@@ -153,7 +157,7 @@ class BNN:
             raise RuntimeError("Can only finalize a network once.")
 
         optimizer_args = {} if optimizer_args is None else optimizer_args
-        self.optimizer = optimizer(**optimizer_args)        # 优化器，默认使用Adam
+        self.optimizer = optimizer(**optimizer_args)  # 优化器，默认使用Adam
 
         # Add variance output.
         # 将最终的output size变为原来的两倍，分别代表mean和variance，构建一高斯model
@@ -168,9 +172,11 @@ class BNN:
         with self.sess.as_default():
             with tf.variable_scope(self.name):
                 self.scaler = TensorStandardScaler(self.layers[0].get_input_dim())
-                self.max_logvar = tf.Variable(np.ones([1, self.layers[-1].get_output_dim() // 2])/2., dtype=tf.float32,
+                self.max_logvar = tf.Variable(np.ones([1, self.layers[-1].get_output_dim() // 2]) / 2.,
+                                              dtype=tf.float32,
                                               name="max_log_var")
-                self.min_logvar = tf.Variable(-np.ones([1, self.layers[-1].get_output_dim() // 2])*10., dtype=tf.float32,
+                self.min_logvar = tf.Variable(-np.ones([1, self.layers[-1].get_output_dim() // 2]) * 10.,
+                                              dtype=tf.float32,
                                               name="min_log_var")
                 for i, layer in enumerate(self.layers):
                     with tf.variable_scope("Layer%i" % i):
@@ -182,7 +188,7 @@ class BNN:
 
         # Set up training
         with tf.variable_scope(self.name):
-            self.optimizer = optimizer(**optimizer_args)        # 不知道为啥这里重新赋值了一遍
+            self.optimizer = optimizer(**optimizer_args)  # 不知道为啥这里重新赋值了一遍
             # 和input size相同的placeholder，其中第二维是batch size，这里留空
             self.sy_train_in = tf.placeholder(dtype=tf.float32,
                                               shape=[self.num_nets, None, self.layers[0].get_input_dim()],
@@ -210,7 +216,7 @@ class BNN:
                 self.create_prediction_tensors(self.sy_pred_in2d, factored=True)
             self.sy_pred_mean2d = tf.reduce_mean(self.sy_pred_mean2d_fac, axis=0)
             self.sy_pred_var2d = tf.reduce_mean(self.sy_pred_var2d_fac, axis=0) + \
-                tf.reduce_mean(tf.square(self.sy_pred_mean2d_fac - self.sy_pred_mean2d), axis=0)
+                                 tf.reduce_mean(tf.square(self.sy_pred_mean2d_fac - self.sy_pred_mean2d), axis=0)
 
             self.sy_pred_in3d = tf.placeholder(dtype=tf.float32,
                                                shape=[self.num_nets, None, self.layers[0].get_input_dim()],
@@ -256,7 +262,7 @@ class BNN:
                 updated = True
                 improvement = (best - current) / best
                 # print('epoch {} | updated {} | improvement: {:.4f} | best: {:.4f} | current: {:.4f}'.format(epoch, i, improvement, best, current))
-        
+
         if updated:
             self._epochs_since_update = 0
         else:
@@ -294,7 +300,7 @@ class BNN:
             feed_dict={
                 self.sy_train_in: inputs,
                 self.sy_train_targ: targets
-                }
+            }
         )
         mean_elite_loss = np.sort(losses)[:self.num_elites].mean()
         return mean_elite_loss
@@ -332,7 +338,7 @@ class BNN:
         permutation = np.random.permutation(inputs.shape[0])
         inputs, holdout_inputs = inputs[permutation[num_holdout:]], inputs[permutation[:num_holdout]]
         targets, holdout_targets = targets[permutation[num_holdout:]], targets[permutation[:num_holdout]]
-        # 将holdout赋值为和[self.num_nets, 1, 1]维维度相同
+
         holdout_inputs = np.tile(holdout_inputs[None], [self.num_nets, 1, 1])
         holdout_targets = np.tile(holdout_targets[None], [self.num_nets, 1, 1])
 
@@ -340,6 +346,8 @@ class BNN:
         with self.sess.as_default():
             self.scaler.fit(inputs)
 
+        # idxs维度
+        # ensemble-size * all-sample-size
         idxs = np.random.randint(inputs.shape[0], size=[self.num_nets, inputs.shape[0]])
         if hide_progress:
             progress = Silent()
@@ -358,7 +366,11 @@ class BNN:
         grad_updates = 0
         for epoch in epoch_iter:
             for batch_num in range(int(np.ceil(idxs.shape[-1] / batch_size))):
+                # batch_idxs维度
+                # ensemble-size * batch-size
                 batch_idxs = idxs[:, batch_num * batch_size:(batch_num + 1) * batch_size]
+                print(batch_idxs.shape)
+                print(inputs[batch_idxs].shape)
                 self.sess.run(
                     self.train_op,
                     feed_dict={self.sy_train_in: inputs[batch_idxs], self.sy_train_targ: targets[batch_idxs]}
@@ -369,29 +381,29 @@ class BNN:
             if not hide_progress:
                 if holdout_ratio < 1e-12:
                     losses = self.sess.run(
-                            self.mse_loss,
-                            feed_dict={
-                                self.sy_train_in: inputs[idxs[:, :max_logging]],
-                                self.sy_train_targ: targets[idxs[:, :max_logging]]
-                            }
-                        )
+                        self.mse_loss,
+                        feed_dict={
+                            self.sy_train_in: inputs[idxs[:, :max_logging]],
+                            self.sy_train_targ: targets[idxs[:, :max_logging]]
+                        }
+                    )
                     named_losses = [['M{}'.format(i), losses[i]] for i in range(len(losses))]
                     progress.set_description(named_losses)
                 else:
                     losses = self.sess.run(
-                            self.mse_loss,
-                            feed_dict={
-                                self.sy_train_in: inputs[idxs[:, :max_logging]],
-                                self.sy_train_targ: targets[idxs[:, :max_logging]]
-                            }
-                        )
+                        self.mse_loss,
+                        feed_dict={
+                            self.sy_train_in: inputs[idxs[:, :max_logging]],
+                            self.sy_train_targ: targets[idxs[:, :max_logging]]
+                        }
+                    )
                     holdout_losses = self.sess.run(
-                            self.mse_loss,
-                            feed_dict={
-                                self.sy_train_in: holdout_inputs,
-                                self.sy_train_targ: holdout_targets
-                            }
-                        )
+                        self.mse_loss,
+                        feed_dict={
+                            self.sy_train_in: holdout_inputs,
+                            self.sy_train_targ: holdout_targets
+                        }
+                    )
                     named_losses = [['M{}'.format(i), losses[i]] for i in range(len(losses))]
                     named_holdout_losses = [['V{}'.format(i), holdout_losses[i]] for i in range(len(holdout_losses))]
                     named_losses = named_losses + named_holdout_losses + [['T', time.time() - t0]]
@@ -555,12 +567,12 @@ class BNN:
         for layer in self.layers:
             cur_out = layer.compute_output_tensor(cur_out)
 
-        mean = cur_out[:, :, :dim_output//2]
+        mean = cur_out[:, :, :dim_output // 2]
 
         if self.end_act is not None:
             mean = self.end_act(mean)
 
-        logvar = self.max_logvar - tf.nn.softplus(self.max_logvar - cur_out[:, :, dim_output//2:])
+        logvar = self.max_logvar - tf.nn.softplus(self.max_logvar - cur_out[:, :, dim_output // 2:])
         logvar = self.min_logvar + tf.nn.softplus(logvar - self.min_logvar)
 
         if ret_log_var:
@@ -594,8 +606,10 @@ class BNN:
 
         return total_losses
 
+
 if __name__ == "__main__":
     from mbpo.models.fc import FC
+
     params = {'name': 'BNN', 'num_networks': 7, 'num_elites': 5, 'sess': None}
 
     hidden_dim, obs_dim, act_dim, rew_dim = 128, 10, 5, 1
@@ -608,8 +622,20 @@ if __name__ == "__main__":
     model.add(FC(obs_dim + rew_dim, weight_decay=0.0001))
     model.finalize(tf.train.AdamOptimizer, {"learning_rate": 0.001})
 
-    inputs = tf.ones([64, obs_dim + act_dim])
-    targets = tf.ones([64, obs_dim + rew_dim])
+    inputs = np.ones([5000, obs_dim + act_dim])
+    targets = np.ones([5000, obs_dim + rew_dim])
 
-    print(inputs.shape)
-    model.train(inputs, targets)
+    # print(inputs.shape)
+    model.train(inputs, targets, holdout_ratio=0.1)
+
+    # outputs = model.predict(inputs, factored=True)
+    # print(np.array(outputs).shape)
+    # # (2, 7, 5000, 11)
+    #
+    # outputs = model.predict(inputs, factored=False)
+    # print(np.array(outputs).shape)
+    # # (2, 5000, 11)
+    #
+    # outputs = model.predict(np.ones([7, 5000, obs_dim + act_dim]))
+    # print(np.array(outputs).shape)
+    # # (2, 7, 5000, 11)
