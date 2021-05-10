@@ -369,8 +369,7 @@ class BNN:
                 # batch_idxs维度
                 # ensemble-size * batch-size
                 batch_idxs = idxs[:, batch_num * batch_size:(batch_num + 1) * batch_size]
-                print(batch_idxs.shape)
-                print(inputs[batch_idxs].shape)
+
                 self.sess.run(
                     self.train_op,
                     feed_dict={self.sy_train_in: inputs[batch_idxs], self.sy_train_targ: targets[batch_idxs]}

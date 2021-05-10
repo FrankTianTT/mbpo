@@ -394,8 +394,8 @@ class MBPO(RLAlgorithm):
         # 没看懂这里，这个sampler应该是从和真正的环境交互产生的数据的buffer中采样？
         batch = self.sampler.random_batch(rollout_batch_size)
         steps_added = []
-        mini_rollout_batch_size = rollout_batch_size // 5
-        for i in range(5):
+        mini_rollout_batch_size = rollout_batch_size // 10
+        for i in range(10):
             obs = batch['observations'][i * mini_rollout_batch_size, (i + 1) * mini_rollout_batch_size]
             for j in range(self._rollout_length):
                 # 和fake_env交互self._rollout_length步
