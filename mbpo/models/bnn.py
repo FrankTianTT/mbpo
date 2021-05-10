@@ -556,6 +556,7 @@ class BNN:
             cur_out = layer.compute_output_tensor(cur_out)
 
         mean = cur_out[:, :, :dim_output//2]
+
         if self.end_act is not None:
             mean = self.end_act(mean)
 
@@ -592,3 +593,23 @@ class BNN:
             total_losses = tf.reduce_mean(tf.reduce_mean(tf.square(mean - targets), axis=-1), axis=-1)
 
         return total_losses
+
+if __name__ == "__main__":
+    from mbpo.models.fc import FC
+    params = {'name': 'BNN', 'num_networks': 7, 'num_elites': 5, 'sess': None}
+
+    hidden_dim, obs_dim, act_dim, rew_dim = 128, 10, 5, 1
+    model = BNN(params)
+
+    # 第一层必须指定input，后面层的input可以自动计算
+    model.add(FC(hidden_dim, input_dim=obs_dim + act_dim, activation="swish", weight_decay=0.000025))
+    model.add(FC(hidden_dim, activation="swish", weight_decay=0.00005))
+    model.add(FC(hidden_dim, activation="swish", weight_decay=0.000075))
+    model.add(FC(obs_dim + rew_dim, weight_decay=0.0001))
+    model.finalize(tf.train.AdamOptimizer, {"learning_rate": 0.001})
+
+    inputs = tf.ones([64, obs_dim + act_dim])
+    targets = tf.ones([64, obs_dim + rew_dim])
+
+    print(inputs.shape)
+    model.train(inputs, targets)

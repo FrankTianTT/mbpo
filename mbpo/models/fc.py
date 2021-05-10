@@ -82,9 +82,16 @@ class FC:
         Returns: The output of the layer, as described above.
         """
         # Get raw layer outputs
+        # tf.einsum是爱因斯坦求和, 用字符串表示张量运算
         if len(input_tensor.shape) == 2:
+            # input_tensor: batch-size * input-dim
+            # weights: ensemble-size * input-dim * output-dim
+            # raw_output: ensemble-size * batch-size * output-dim
             raw_output = tf.einsum("ij,ajk->aik", input_tensor, self.weights) + self.biases
         elif len(input_tensor.shape) == 3 and input_tensor.shape[0].value == self.ensemble_size:
+            # input_tensor: ensemble-size * batch-size * input-dim
+            # weights: ensemble-size * input-dim * output-dim
+            # raw_output: ensemble-size * batch-size * output-dim
             raw_output = tf.matmul(input_tensor, self.weights) + self.biases
         else:
             raise ValueError("Invalid input dimension.")
@@ -136,7 +143,7 @@ class FC:
             shape=[self.ensemble_size, self.input_dim, self.output_dim],
             initializer=tf.truncated_normal_initializer(stddev=1/(2*np.sqrt(self.input_dim)))
         )
-        # 权重有个维度，第一个维度代表了是哪个ensemble的model
+        # 权重有3个维度，第一个维度代表了是哪个ensemble的model
         self.biases = tf.get_variable(
             "FC_biases",
             shape=[self.ensemble_size, 1, self.output_dim],

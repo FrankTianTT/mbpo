@@ -48,9 +48,11 @@ class SingleDimFC:
         self.decays = None
 
     def __repr__(self):
-        return "SingleStateFC(output_dim={!r}, input_dim={!r}, activation={!r}, weight_decay={!r}, ensemble_size={!r})"\
+        return "SingleDimFC(output_dim={!r}, input_dim={!r}, activation={!r}, weight_decay={!r}, " \
+               "ensemble_size={!r}, obs_dim={!r}, rew_dim={!r})"\
             .format(
-                self.output_dim, self.input_dim, self.activation, self.weight_decay, self.ensemble_size
+                self.output_dim, self.input_dim, self.activation, self.weight_decay,
+            self.ensemble_size, self.obs_dim, self.rew_dim
             )
 
     #### Extensions
@@ -86,8 +88,15 @@ class SingleDimFC:
         """
         # Get raw layer outputs
         if len(input_tensor.shape) == 2:
-            raw_output = tf.einsum("ij,ajk->aik", input_tensor, self.weights) + self.biases
-        elif len(input_tensor.shape) == 3 and input_tensor.shape[0].value == self.ensemble_size:
+            # input_tensor: batch-size * input-dim
+            # weights: ensemble-size * (obs-dim + rew-dim) * input-dim * output-dim
+            # raw_output: ensemble-size * (obs-dim + rew-dim) * batch-size * output-dim
+            raw_output = tf.einsum("ij,abjk->abik", input_tensor, self.weights) + self.biases
+        elif len(input_tensor.shape) == 4 and input_tensor.shape[0].value == self.ensemble_size \
+                and input_tensor.shape[1].value == self.obs_dim + self.rew_dim:
+            # input_tensor: ensemble-size * (obs-dim + rew-dim) * batch-size * input-dim
+            # weights: ensemble-size * (obs-dim + rew-dim) * input-dim * output-dim
+            # raw_output: ensemble-size * (obs-dim + rew-dim) * batch-size * output-dim
             raw_output = tf.matmul(input_tensor, self.weights) + self.biases
         else:
             raise ValueError("Invalid input dimension.")
@@ -136,13 +145,13 @@ class SingleDimFC:
         # Construct variables
         self.weights = tf.get_variable(
             "FC_weights",
-            shape=[self.ensemble_size, self.input_dim, self.output_dim],
+            shape=[self.ensemble_size, self.obs_dim + self.rew_dim, self.input_dim, self.output_dim],
             initializer=tf.truncated_normal_initializer(stddev=1/(2*np.sqrt(self.input_dim)))
         )
-        # 权重有个维度，第一个维度代表了是哪个ensemble的model
+        # 权重有4个维度，第一个维度代表了是哪个ensemble的model，第二个维度是哪个obs或者rew
         self.biases = tf.get_variable(
             "FC_biases",
-            shape=[self.ensemble_size, 1, self.output_dim],
+            shape=[self.ensemble_size, self.obs_dim + self.rew_dim, 1, self.output_dim],
             initializer=tf.constant_initializer(0.0)
         )
 
@@ -274,10 +283,19 @@ class SingleDimFC:
     def get_obs_dim(self):
         return self.obs_dim
 
-    def set_red_dim(self, red_dim):
+    def set_rew_dim(self, rew_dim):
         if self.variables_constructed:
             raise RuntimeError("Variables already constructed.")
-        self.red_dim = red_dim
+        self.rew_dim = rew_dim
 
-    def get_red_dim(self):
-        return self.red_dim
+    def get_rew_dim(self):
+        return self.rew_dim
+
+
+if __name__ == "__main__":
+    layer = SingleDimFC(128, 128, activation="swish", weight_decay=0.00005)
+    layer.set_obs_dim(10)
+    layer.set_rew_dim(1)
+    print(layer)
+
+    layer.construct_vars()

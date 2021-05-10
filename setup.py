@@ -2,7 +2,7 @@ from distutils.core import setup
 from setuptools import find_packages
 
 setup(
-    name='mbpo',
+    name='causal-mbpo',
     packages=find_packages(),
     version='0.0.1',
     description='Model-based policy optimization',

@@ -69,7 +69,7 @@ class CausalBNN:
         # Prediction objects
         self.sy_pred_in2d, self.sy_pred_mean2d_fac, self.sy_pred_var2d_fac = None, None, None
         self.sy_pred_mean2d, self.sy_pred_var2d = None, None
-        self.sy_pred_in3d, self.sy_pred_mean3d_fac, self.sy_pred_var3d_fac = None, None, None
+        self.sy_pred_in4d, self.sy_pred_mean4d_fac, self.sy_pred_var4d_fac = None, None, None
 
         if params.get('load_model', False):
             if self.model_dir is None:
@@ -128,7 +128,7 @@ class CausalBNN:
         layer.set_ensemble_size(self.num_nets)
         # fc的每一层有四个维度[ensemble_size, obs_dim + red_dim, input_dim, output_dim]
         layer.set_obs_dim(self.obs_dim)
-        layer.set_red_dim(self.red_dim)
+        layer.set_rew_dim(self.rew_dim)
         if len(self.layers) > 0:
             layer.set_input_dim(self.layers[-1].get_output_dim())  # 自动计算input size
         self.layers.append(layer.copy())
@@ -173,14 +173,16 @@ class CausalBNN:
         self.end_act_name = self.layers[-1].get_activation(as_func=False)
         self.layers[-1].unset_activation()
 
+        single_dim = self.obs_dim + self.rew_dim
+
         # Construct all variables.
         with self.sess.as_default():
             with tf.variable_scope(self.name):
                 self.scaler = TensorStandardScaler(self.layers[0].get_input_dim())
-                self.max_logvar = tf.Variable(np.ones([1, self.layers[-1].get_output_dim() // 2]) / 2.,
+                self.max_logvar = tf.Variable(np.ones([single_dim, 1, 1]) / 2.,
                                               dtype=tf.float32,
                                               name="max_log_var")
-                self.min_logvar = tf.Variable(-np.ones([1, self.layers[-1].get_output_dim() // 2]) * 10.,
+                self.min_logvar = tf.Variable(-np.ones([single_dim, 1, 1]) * 10.,
                                               dtype=tf.float32,
                                               name="min_log_var")
                 for i, layer in enumerate(self.layers):
@@ -196,13 +198,14 @@ class CausalBNN:
             self.optimizer = optimizer(**optimizer_args)  # 不知道为啥这里重新赋值了一遍
             # 和input size相同的placeholder，其中第二维是batch size，这里留空
             self.sy_train_in = tf.placeholder(dtype=tf.float32,
-                                              shape=[self.num_nets, None, self.layers[0].get_input_dim()],
+                                              shape=[self.num_nets, single_dim, None, self.layers[0].get_input_dim()],
                                               name="training_inputs")
             # 和target size相同的placeholder
             self.sy_train_targ = tf.placeholder(dtype=tf.float32,
-                                                shape=[self.num_nets, None, self.layers[-1].get_output_dim() // 2],
+                                                shape=[self.num_nets, single_dim, None, 1],
                                                 name="training_targets")
             train_loss = tf.reduce_sum(self._compile_losses(self.sy_train_in, self.sy_train_targ, inc_var_loss=True))
+            # print(train_loss)
             train_loss += tf.add_n(self.decays)
             train_loss += 0.01 * tf.reduce_sum(self.max_logvar) - 0.01 * tf.reduce_sum(self.min_logvar)
             self.mse_loss = self._compile_losses(self.sy_train_in, self.sy_train_targ, inc_var_loss=False)
@@ -223,11 +226,11 @@ class CausalBNN:
             self.sy_pred_var2d = tf.reduce_mean(self.sy_pred_var2d_fac, axis=0) + \
                                  tf.reduce_mean(tf.square(self.sy_pred_mean2d_fac - self.sy_pred_mean2d), axis=0)
 
-            self.sy_pred_in3d = tf.placeholder(dtype=tf.float32,
-                                               shape=[self.num_nets, None, self.layers[0].get_input_dim()],
+            self.sy_pred_in4d = tf.placeholder(dtype=tf.float32,
+                                               shape=[self.num_nets, single_dim, None, self.layers[0].get_input_dim()],
                                                name="3D_training_inputs")
-            self.sy_pred_mean3d_fac, self.sy_pred_var3d_fac = \
-                self.create_prediction_tensors(self.sy_pred_in3d, factored=True)
+            self.sy_pred_mean4d_fac, self.sy_pred_var4d_fac = \
+                self.create_prediction_tensors(self.sy_pred_in4d, factored=True)
 
         # Load model if needed
         if self.model_loaded:
@@ -483,8 +486,8 @@ class CausalBNN:
                 )
         else:
             return self.sess.run(
-                [self.sy_pred_mean3d_fac, self.sy_pred_var3d_fac],
-                feed_dict={self.sy_pred_in3d: inputs}
+                [self.sy_pred_mean4d_fac, self.sy_pred_var4d_fac],
+                feed_dict={self.sy_pred_in4d: inputs}
             )
 
     def create_prediction_tensors(self, inputs, factored=False, *args, **kwargs):
@@ -563,14 +566,27 @@ class CausalBNN:
         """
         dim_output = self.layers[-1].get_output_dim()
         cur_out = self.scaler.transform(inputs)
+
         for layer in self.layers:
             cur_out = layer.compute_output_tensor(cur_out)
 
-        mean = cur_out[:, :, :dim_output // 2]
+        # cur_out的维度
+        # ensemble-size * (obs-dim + rew-dim) * batch-size * 2
+        # mean的维度
+        # ensemble-size * (obs-dim + rew-dim) * batch-size * 1
+        mean = cur_out[:, :, :, 0]
+        mean = tf.expand_dims(mean, -1)
+        # print(mean)
+
         if self.end_act is not None:
             mean = self.end_act(mean)
 
-        logvar = self.max_logvar - tf.nn.softplus(self.max_logvar - cur_out[:, :, dim_output // 2:])
+        # output_std维度和mean相同
+        output_std = cur_out[:, :, :, 1]
+        output_std = tf.expand_dims(output_std, -1)
+        # output_std = tf.einsum("ijk->ikj", output_std)
+
+        logvar = self.max_logvar - tf.nn.softplus(self.max_logvar - output_std)
         logvar = self.min_logvar + tf.nn.softplus(logvar - self.min_logvar)
 
         if ret_log_var:
@@ -603,3 +619,21 @@ class CausalBNN:
             total_losses = tf.reduce_mean(tf.reduce_mean(tf.square(mean - targets), axis=-1), axis=-1)
 
         return total_losses
+
+if __name__ == "__main__":
+    from mbpo.models.single_dim_fc import SingleDimFC
+    params = {'name': 'CausalBNN', 'num_networks': 7, 'num_elites': 5, 'sess': None}
+
+    hidden_dim, obs_dim, act_dim, rew_dim = 128, 10, 5, 1
+    casual_model = CausalBNN(params, obs_dim, rew_dim)
+
+    # 第一层必须指定input，后面层的input可以自动计算
+    casual_model.add(SingleDimFC(hidden_dim, input_dim=obs_dim + act_dim, activation="swish", weight_decay=0.000025))
+    casual_model.add(SingleDimFC(hidden_dim, activation="swish", weight_decay=0.00005))
+    casual_model.add(SingleDimFC(hidden_dim, activation="swish", weight_decay=0.000075))
+    casual_model.add(SingleDimFC(1, weight_decay=0.0001))
+    casual_model.finalize(tf.train.AdamOptimizer, {"learning_rate": 0.001})
+
+    inputs = tf.ones([64, obs_dim + act_dim])
+    outputs = casual_model.predict(inputs)
+    print(outputs)
