@@ -30,7 +30,7 @@ params = {
         'target_entropy': -0.05,
         'max_model_t': None,
         'rollout_schedule': [1, 15, 1, 1],
-        'hidden_dim': 200,
+        'hidden_dim': 100,
         'n_initial_exploration_steps': 500,
     }
 }
