@@ -393,25 +393,27 @@ class MBPO(RLAlgorithm):
         ))
         # 没看懂这里，这个sampler应该是从和真正的环境交互产生的数据的buffer中采样？
         batch = self.sampler.random_batch(rollout_batch_size)
-        obs = batch['observations']
         steps_added = []
-        for i in range(self._rollout_length):
-            # 和fake_env交互self._rollout_length步
-            act = self._policy.actions_np(obs)
-            
-            next_obs, rew, term, info = self.fake_env.step(obs, act, **kwargs)
-            steps_added.append(len(obs))
+        mini_rollout_batch_size = rollout_batch_size // 5
+        for i in range(5):
+            obs = batch['observations'][i * mini_rollout_batch_size, (i + 1) * mini_rollout_batch_size]
+            for j in range(self._rollout_length):
+                # 和fake_env交互self._rollout_length步
+                act = self._policy.actions_np(obs)
 
-            samples = {'observations': obs, 'actions': act, 'next_observations': next_obs, 'rewards': rew, 'terminals': term}
-            self._model_pool.add_samples(samples)
+                next_obs, rew, term, info = self.fake_env.step(obs, act, **kwargs)
+                steps_added.append(len(obs))
 
-            nonterm_mask = ~term.squeeze(-1)
-            if nonterm_mask.sum() == 0:
-                # 如果每个batch都terminal了，则提前终止
-                print('[ Model Rollout ] Breaking early: {} | {} / {}'.format(i, nonterm_mask.sum(), nonterm_mask.shape))
-                break
+                samples = {'observations': obs, 'actions': act, 'next_observations': next_obs, 'rewards': rew, 'terminals': term}
+                self._model_pool.add_samples(samples)
 
-            obs = next_obs[nonterm_mask]
+                nonterm_mask = ~term.squeeze(-1)
+                if nonterm_mask.sum() == 0:
+                    # 如果每个batch都terminal了，则提前终止
+                    print('[ Model Rollout ] Breaking early: {} | {} / {}'.format(j, nonterm_mask.sum(), nonterm_mask.shape))
+                    break
+
+                obs = next_obs[nonterm_mask]
 
         mean_rollout_length = sum(steps_added) / rollout_batch_size
         rollout_stats = {'mean_rollout_length': mean_rollout_length}
