@@ -5,7 +5,7 @@ params = {
     'task': 'v2',
 
     'log_dir': '~/ray_mbpo/',
-    'exp_name': 'defaults',
+    'exp_name': 'causal',
 
     'kwargs': {
         'epoch_length': 1000,
@@ -21,7 +21,7 @@ params = {
 
         'model_train_freq': 250,
         'model_retain_epochs': 1,
-        'rollout_batch_size': 100e3,
+        'rollout_batch_size': 10e3,
         'deterministic': False,
         'num_networks': 7,
         'num_elites': 5,
@@ -29,6 +29,7 @@ params = {
         'target_entropy': -1,
         'max_model_t': None,
         'rollout_schedule': [20, 150, 1, 15],
+        'hidden_dim': 100,
     }
 }
 

@@ -5,7 +5,7 @@ params = {
     'task': 'v2',
 
     'log_dir': '~/ray_mbpo/',
-    'exp_name': 'defaults',
+    'exp_name': 'causal',
 
     'kwargs': {
         'epoch_length': 1000,
@@ -29,5 +29,6 @@ params = {
         'target_entropy': -3,
         'max_model_t': None,
         'rollout_schedule': [20, 150, 1, 1],
+        'hidden_dim': 100,
     }
 }

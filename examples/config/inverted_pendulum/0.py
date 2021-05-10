@@ -5,7 +5,7 @@ params = {
     'task': 'v2',
 
     'log_dir': '~/ray_mbpo/',
-    'exp_name': 'defaults',
+    'exp_name': 'causal',
 
     'kwargs': {
         'n_epochs': 80, ## 20k steps
