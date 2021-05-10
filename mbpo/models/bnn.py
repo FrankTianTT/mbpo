@@ -118,9 +118,10 @@ class BNN:
         if self.model_loaded:
             raise RuntimeError("Cannot add layers to a loaded model.")
 
+        # self.num_nets是ensemble数量，ensemble由fc模块完成
         layer.set_ensemble_size(self.num_nets)
         if len(self.layers) > 0:
-            layer.set_input_dim(self.layers[-1].get_output_dim())
+            layer.set_input_dim(self.layers[-1].get_output_dim())   # 自动计算input size
         self.layers.append(layer.copy())
 
     def pop(self):
@@ -152,9 +153,10 @@ class BNN:
             raise RuntimeError("Can only finalize a network once.")
 
         optimizer_args = {} if optimizer_args is None else optimizer_args
-        self.optimizer = optimizer(**optimizer_args)
+        self.optimizer = optimizer(**optimizer_args)        # 优化器，默认使用Adam
 
         # Add variance output.
+        # 将最终的output size变为原来的两倍，分别代表mean和variance，构建一高斯model
         self.layers[-1].set_output_dim(2 * self.layers[-1].get_output_dim())
 
         # Remove last activation to isolate variance from activation function.
@@ -180,10 +182,12 @@ class BNN:
 
         # Set up training
         with tf.variable_scope(self.name):
-            self.optimizer = optimizer(**optimizer_args)
+            self.optimizer = optimizer(**optimizer_args)        # 不知道为啥这里重新赋值了一遍
+            # 和input size相同的placeholder，其中第二维是batch size，这里留空
             self.sy_train_in = tf.placeholder(dtype=tf.float32,
                                               shape=[self.num_nets, None, self.layers[0].get_input_dim()],
                                               name="training_inputs")
+            # 和target size相同的placeholder
             self.sy_train_targ = tf.placeholder(dtype=tf.float32,
                                                 shape=[self.num_nets, None, self.layers[-1].get_output_dim() // 2],
                                                 name="training_targets")
@@ -323,10 +327,12 @@ class BNN:
             return arr[np.arange(arr.shape[0])[:, None], idxs]
 
         # Split into training and holdout sets
+        # 打乱数据集，并随机保留一部分holdout
         num_holdout = min(int(inputs.shape[0] * holdout_ratio), max_logging)
         permutation = np.random.permutation(inputs.shape[0])
         inputs, holdout_inputs = inputs[permutation[num_holdout:]], inputs[permutation[:num_holdout]]
         targets, holdout_targets = targets[permutation[num_holdout:]], targets[permutation[:num_holdout]]
+        # 将holdout赋值为和[self.num_nets, 1, 1]维维度相同
         holdout_inputs = np.tile(holdout_inputs[None], [self.num_nets, 1, 1])
         holdout_targets = np.tile(holdout_targets[None], [self.num_nets, 1, 1])
 

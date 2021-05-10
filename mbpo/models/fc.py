@@ -112,6 +112,8 @@ class FC:
         Returns: The copied layer.
         """
         new_layer = eval(repr(self))
+        # python实践中，往往将repr用于输出一个可执行的string，这里的string可以重新构造这个类，实现了copy方法
+        # 见__repr__
         return new_layer
 
     #########################################################
@@ -134,6 +136,7 @@ class FC:
             shape=[self.ensemble_size, self.input_dim, self.output_dim],
             initializer=tf.truncated_normal_initializer(stddev=1/(2*np.sqrt(self.input_dim)))
         )
+        # 权重有个维度，第一个维度代表了是哪个ensemble的model
         self.biases = tf.get_variable(
             "FC_biases",
             shape=[self.ensemble_size, 1, self.output_dim],

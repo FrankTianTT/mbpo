@@ -97,8 +97,11 @@ class MBPO(RLAlgorithm):
 
         obs_dim = np.prod(training_environment.observation_space.shape)
         act_dim = np.prod(training_environment.action_space.shape)
+        # 构造高斯分布model, 使用ensemble
         self._model = construct_model(obs_dim=obs_dim, act_dim=act_dim, hidden_dim=hidden_dim, num_networks=num_networks, num_elites=num_elites)
+        # model的终止函数，决定了一个(state, action)pair是否done
         self._static_fns = static_fns
+        # 用model和static_fns就可以构造一个fake_env，可以从中采样（Dyna-like的方法）
         self.fake_env = FakeEnv(self._model, self._static_fns)
 
         self._rollout_schedule = rollout_schedule
@@ -166,7 +169,7 @@ class MBPO(RLAlgorithm):
         self._init_critic_update()
 
     def _train(self):
-        
+        # 这个一个生成器的类似构造函数，return的结果是这个生成器的实例，每次调用生成的结果就是函数中yield返回的结果
         """Return a generator that performs RL training.
 
         Args:
@@ -188,6 +191,7 @@ class MBPO(RLAlgorithm):
             self._initial_exploration_hook(
                 training_environment, self._initial_exploration_policy, pool)
 
+        # samplers是一个类，使用policy和training_environment交互，将样本保存在pool里
         self.sampler.initialize(training_environment, policy, pool)
 
         gt.reset_root()
@@ -197,7 +201,7 @@ class MBPO(RLAlgorithm):
         self._training_before_hook()
 
         for self._epoch in gt.timed_for(range(self._epoch, self._n_epochs)):
-
+            # 整个算法的循环
             self._epoch_before_hook()
             gt.stamp('epoch_before_hook')
 
@@ -207,14 +211,15 @@ class MBPO(RLAlgorithm):
                 samples_now = self.sampler._total_samples
                 self._timestep = samples_now - start_samples
 
-                if (samples_now >= start_samples + self._epoch_length
-                    and self.ready_to_train):
+                if (samples_now >= start_samples + self._epoch_length and self.ready_to_train):
+                    # 本次采样数目达到self._epoch_length，则停止采样
                     break
 
                 self._timestep_before_hook()
                 gt.stamp('timestep_before_hook')
 
                 if self._timestep % self._model_train_freq == 0 and self._real_ratio < 1.0:
+                    # 采样self._model_train_freq次后训练model
                     self._training_progress.pause()
                     print('[ MBPO ] log_dir: {} | ratio: {}'.format(self._log_dir, self._real_ratio))
                     print('[ MBPO ] Training model at epoch {} | freq {} | timestep {} (total: {}) | epoch train steps: {} (total: {})'.format(
@@ -235,6 +240,7 @@ class MBPO(RLAlgorithm):
                     # self._visualize_model(self._evaluation_environment, self._total_timestep)
                     self._training_progress.resume()
 
+                # 就是使用sampler采样
                 self._do_sampling(timestep=self._total_timestep)
                 gt.stamp('sample')
 
@@ -245,6 +251,7 @@ class MBPO(RLAlgorithm):
                 self._timestep_after_hook()
                 gt.stamp('timestep_after_hook')
 
+            # 后面的代码就是soft learning的逻辑，model free算法
             training_paths = self.sampler.get_last_n_paths(
                 math.ceil(self._epoch_length / self.sampler._max_path_length))
             gt.stamp('training_paths')
@@ -379,13 +386,16 @@ class MBPO(RLAlgorithm):
         return model_metrics
 
     def _rollout_model(self, rollout_batch_size, **kwargs):
+        # 从fake_env中采样，用于soft learning的训练
         print('[ Model Rollout ] Starting | Epoch: {} | Rollout length: {} | Batch size: {}'.format(
             self._epoch, self._rollout_length, rollout_batch_size
         ))
+        # 没看懂这里，这个sampler应该是从和真正的环境交互产生的数据的buffer中采样？
         batch = self.sampler.random_batch(rollout_batch_size)
         obs = batch['observations']
         steps_added = []
         for i in range(self._rollout_length):
+            # 和fake_env交互self._rollout_length步
             act = self._policy.actions_np(obs)
             
             next_obs, rew, term, info = self.fake_env.step(obs, act, **kwargs)
@@ -396,6 +406,7 @@ class MBPO(RLAlgorithm):
 
             nonterm_mask = ~term.squeeze(-1)
             if nonterm_mask.sum() == 0:
+                # 如果每个batch都terminal了，则提前终止
                 print('[ Model Rollout ] Breaking early: {} | {} / {}'.format(i, nonterm_mask.sum(), nonterm_mask.shape))
                 break
 

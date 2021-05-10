@@ -7,8 +7,10 @@ from mbpo.models.bnn import BNN
 def construct_model(obs_dim=11, act_dim=3, rew_dim=1, hidden_dim=200, num_networks=7, num_elites=5, session=None):
 	print('[ BNN ] Observation dim {} | Action dim: {} | Hidden dim: {}'.format(obs_dim, act_dim, hidden_dim))
 	params = {'name': 'BNN', 'num_networks': num_networks, 'num_elites': num_elites, 'sess': session}
+	# num_networks是model ensemble的数量
 	model = BNN(params)
 
+	# 第一层必须指定input，后面层的input可以自动计算
 	model.add(FC(hidden_dim, input_dim=obs_dim+act_dim, activation="swish", weight_decay=0.000025))
 	model.add(FC(hidden_dim, activation="swish", weight_decay=0.00005))
 	model.add(FC(hidden_dim, activation="swish", weight_decay=0.000075))
@@ -22,6 +24,7 @@ def format_samples_for_training(samples):
 	act = samples['actions']
 	next_obs = samples['next_observations']
 	rew = samples['rewards']
+	# 预测obs之间的残差
 	delta_obs = next_obs - obs
 	inputs = np.concatenate((obs, act), axis=-1)
 	outputs = np.concatenate((rew, delta_obs), axis=-1)
