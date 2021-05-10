@@ -17,6 +17,7 @@ from softlearning.algorithms.rl_algorithm import RLAlgorithm
 from softlearning.replay_pools.simple_replay_pool import SimpleReplayPool
 
 from mbpo.models.constructor import construct_model, format_samples_for_training
+from mbpo.models.constructor import construct_casual_model
 from mbpo.models.fake_env import FakeEnv
 from mbpo.utils.writer import Writer
 from mbpo.utils.visualization import visualize_policy
@@ -98,7 +99,7 @@ class MBPO(RLAlgorithm):
         obs_dim = np.prod(training_environment.observation_space.shape)
         act_dim = np.prod(training_environment.action_space.shape)
         # 构造高斯分布model, 使用ensemble
-        self._model = construct_model(obs_dim=obs_dim, act_dim=act_dim, hidden_dim=hidden_dim, num_networks=num_networks, num_elites=num_elites)
+        self._model = construct_casual_model(obs_dim=obs_dim, act_dim=act_dim, hidden_dim=hidden_dim, num_networks=num_networks, num_elites=num_elites)
         # model的终止函数，决定了一个(state, action)pair是否done
         self._static_fns = static_fns
         # 用model和static_fns就可以构造一个fake_env，可以从中采样（Dyna-like的方法）
