@@ -396,7 +396,7 @@ class MBPO(RLAlgorithm):
         steps_added = []
         mini_rollout_batch_size = rollout_batch_size // 10
         for i in range(10):
-            obs = batch['observations'][i * mini_rollout_batch_size, (i + 1) * mini_rollout_batch_size]
+            obs = batch['observations'][i * mini_rollout_batch_size: (i + 1) * mini_rollout_batch_size]
             for j in range(self._rollout_length):
                 # 和fake_env交互self._rollout_length步
                 act = self._policy.actions_np(obs)
