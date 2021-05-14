@@ -328,7 +328,6 @@ class CausalBNN:
         inputs (np.ndarray): a batch of inputs data
             ensemble-size * (state-dim + reward-dim) * (to_num - from_num) * (state-dim + action-dim)
         """
-        batch_size = inputs.shape[2]
 
         # mask的维度：（初始化为1）
         # (state-dim + reward-dim) * (state-dim + action-dim)
@@ -336,8 +335,10 @@ class CausalBNN:
         # causal_mask的维度: （将causal_mask的一部分赋值给mask）
         # state-dim * state-dim
         mask[self.obs_dim:, self.obs_dim:] = self.causal_mask
+
         mask = np.expand_dims(mask, 0)
         mask = np.expand_dims(mask, -2)
+        batch_size = inputs.shape[2]
         mask = np.tile(mask, [self.num_nets, 1, batch_size, 1])
 
         mask_inputs = inputs.copy()
@@ -511,6 +512,25 @@ class CausalBNN:
 
         # pdb.set_trace()
 
+    def get_marked_4d_inputs(self, inputs):
+        """
+        inputs: (np.ndarray) 2D
+            batch-size * (state-dim + action-dim)
+        """
+        inputs = np.tile(inputs[None, None], [self.num_nets, self.single_dim, 1, 1])
+        inputs = self.mask_inputs(inputs)
+        return inputs
+
+    def get_2d_targets(self, targets):
+        factored_mean, factored_variance = targets
+        mean = np.mean(factored_mean, axis=0)
+        variance = np.mean(np.square(factored_mean - mean), axis=0) + \
+                   np.mean(factored_variance, axis=0)
+        mean = np.einsum("abc->cba", mean)
+        variance = np.einsum("abc->cba", variance)
+        outputs = np.concatenate([mean, variance], axis=0)
+        return outputs
+
     def predict(self, inputs, factored=False, *args, **kwargs):
         """Returns the distribution predicted by the model for each input vector in inputs.
         Behavior is affected by the dimensionality of inputs and factored as follows:
@@ -534,17 +554,17 @@ class CausalBNN:
             factored (bool): See above for behavior.
         """
         if len(inputs.shape) == 2:
+            inputs = self.get_marked_4d_inputs(inputs)
+            outputs = self.sess.run([self.sy_pred_mean4d_fac, self.sy_pred_var4d_fac],
+                                    feed_dict={self.sy_pred_in4d: inputs})
             if factored:
-                outputs = self.sess.run([self.sy_pred_mean2d_fac, self.sy_pred_var2d_fac],
-                                        feed_dict={self.sy_pred_in2d: inputs})
                 outputs = np.einsum("abcde->abdc", outputs)
                 return outputs
             else:
-                outputs = self.sess.run([self.sy_pred_mean2d, self.sy_pred_var2d],
-                                        feed_dict={self.sy_pred_in2d: inputs})
-                outputs = np.einsum("abcd->acb", outputs)
+                outputs = self.get_2d_targets(outputs)
                 return outputs
         else:
+            inputs = self.mask_inputs(inputs)
             outputs = self.sess.run([self.sy_pred_mean4d_fac, self.sy_pred_var4d_fac],
                                     feed_dict={self.sy_pred_in4d: inputs})
             outputs = np.einsum("abcde->abdc", outputs)
@@ -711,19 +731,21 @@ if __name__ == "__main__":
     targets = np.ones([5000, obs_dim + rew_dim])
 
     # print(inputs.shape)
-    casual_model.train(inputs, targets, holdout_ratio=0.1)
+    # casual_model.train(inputs, targets, holdout_ratio=0.1)
     #
-    # outputs = casual_model.predict(inputs, factored=True)
-    # print(np.array(outputs).shape)
-    # # (2, 7, 5000, 11)
+    outputs1 = casual_model.predict(inputs, factored=True)
+    print(np.array(outputs1).shape)
+    # (2, 7, 5000, 5)
     #
-    # outputs = casual_model.predict(inputs, factored=False)
-    # print(np.array(outputs).shape)
-    # # (2, 5000, 11)
-    #
-    # outputs = casual_model.predict(np.ones([7, obs_dim + rew_dim, 5000, obs_dim + act_dim]))
-    # print(np.array(outputs).shape)
-    # # (2, 7, 5000, 11)
+    outputs2 = casual_model.predict(inputs, factored=False)
+    print(np.array(outputs2).shape)
+    # (2, 5000, 5)
+
+    outputs3 = casual_model.predict(np.ones([7, obs_dim + rew_dim, 5000, obs_dim + act_dim]))
+    print(np.array(outputs3).shape)
+    # (2, 7, 5000, 5)
+
+    print((outputs1 == outputs3).any())
 
     # casual_model.load_causal_mask_from_file()
     # casual_model.mask_inputs(np.ones([7, obs_dim + rew_dim, 32, obs_dim + act_dim]))
