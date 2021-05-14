@@ -26,7 +26,7 @@ def construct_casual_model(obs_dim=11, act_dim=3, rew_dim=1, hidden_dim=200, num
 	print('[ BNN ] Observation dim {} | Action dim: {} | Hidden dim: {}'.format(obs_dim, act_dim, hidden_dim))
 	params = {'name': 'CausalBNN', 'num_networks': num_networks, 'num_elites': num_elites, 'sess': session}
 	# num_networks是model ensemble的数量
-	casual_model = CausalBNN(params, obs_dim, rew_dim)
+	casual_model = CausalBNN(params, act_dim, obs_dim, rew_dim)
 
 	# 第一层必须指定input，后面层的input可以自动计算
 	casual_model.add(SingleDimFC(hidden_dim, input_dim=obs_dim + act_dim, activation="swish", weight_decay=0.000025))

@@ -26,7 +26,7 @@ class CausalBNN:
     with ensembling).
     """
 
-    def __init__(self, params, obs_dim, rew_dim):
+    def __init__(self, params, act_dim, obs_dim, rew_dim):
         """Initializes a class instance.
 
         Arguments:
@@ -53,6 +53,9 @@ class CausalBNN:
             self._sess = tf.Session(config=config)
         else:
             self._sess = params.get('sess')
+
+        # Causal variables
+        self.causal_mask = None
 
         # Instance variables
         self.finalized = False
@@ -81,6 +84,7 @@ class CausalBNN:
         else:
             self.num_nets = params.get('num_networks', 1)
             self.num_elites = params['num_elites']  # params.get('num_elites', 1)
+            self.act_dim = act_dim
             self.obs_dim = obs_dim
             self.rew_dim = rew_dim
             self.single_dim = obs_dim + rew_dim
@@ -92,6 +96,8 @@ class CausalBNN:
             print(
                 "Created an ensemble of {} neural networks with variance predictions | Elites: {}".format(self.num_nets,
                                                                                                           self.num_elites))
+
+
 
     @property
     def is_probabilistic(self):
@@ -316,6 +322,28 @@ class CausalBNN:
     # Model Methods #
     #################
 
+    def mask_inputs(self, inputs):
+        """mask the independent inputs
+
+        inputs (np.ndarray): a batch of inputs data
+            ensemble-size * (state-dim + reward-dim) * (to_num - from_num) * (state-dim + action-dim)
+        """
+        batch_size = inputs.shape[2]
+
+        # mask的维度：（初始化为1）
+        # (state-dim + reward-dim) * (state-dim + action-dim)
+        mask = np.ones([self.obs_dim + self.rew_dim, self.obs_dim + self.act_dim])
+        # causal_mask的维度: （将causal_mask的一部分赋值给mask）
+        # state-dim * state-dim
+        mask[self.obs_dim:, self.obs_dim:] = self.causal_mask
+        mask = np.expand_dims(mask, 0)
+        mask = np.expand_dims(mask, -2)
+        mask = np.tile(mask, [self.num_nets, 1, batch_size, 1])
+
+        mask_inputs = inputs.copy()
+        mask_inputs[mask == 0] = 0
+        return mask_inputs
+
     def train(self, inputs, targets,
               batch_size=32, max_epochs=None, max_epochs_since_update=5,
               hide_progress=False, holdout_ratio=0.0, max_logging=5000, max_grad_updates=None, timer=None, max_t=None):
@@ -346,7 +374,10 @@ class CausalBNN:
         inputs, holdout_inputs = inputs[permutation[num_holdout:]], inputs[permutation[:num_holdout]]
         targets, holdout_targets = targets[permutation[num_holdout:]], targets[permutation[:num_holdout]]
 
+        # 处理input，逻辑和get_inputs函数相同
         holdout_inputs = np.tile(holdout_inputs[None, None], [self.num_nets, self.single_dim, 1, 1])
+        holdout_inputs = self.mask_inputs(holdout_inputs)
+        # 处理target，逻辑和get_targets函数相同
         holdout_targets = np.tile(holdout_targets[None], [self.num_nets, 1, 1])
         holdout_targets = np.einsum("abc->acb", holdout_targets)
         holdout_targets = np.expand_dims(holdout_targets, -1)
@@ -360,16 +391,26 @@ class CausalBNN:
         idxs = np.random.randint(inputs.shape[0], size=[self.num_nets, inputs.shape[0]])
 
         def get_inputs(from_num, to_num):
+            # ensemble-size * (to_num - from_num)
             batch_idxs = idxs[:, from_num:to_num]
+            # ensemble-size * (to_num - from_num) * (state-dim + action-dim)
             batch_inputs = inputs[batch_idxs]
+            # ensemble-size * 1 * (to_num - from_num) * (state-dim + action-dim)
             batch_inputs = np.expand_dims(batch_inputs, 1)
+            # ensemble-size * (state-dim + reward-dim) * (to_num - from_num) * (state-dim + action-dim)
             batch_inputs = np.tile(batch_inputs, [1, self.single_dim, 1, 1])
+            # 将无关的inputs mask掉
+            batch_inputs = self.mask_inputs(batch_inputs)
             return batch_inputs
 
         def get_targets(from_num, to_num):
+            # ensemble-size * (to_num - from_num)
             batch_idxs = idxs[:, from_num:to_num]
+            # ensemble-size * (to_num - from_num) * (state-dim + reward-dim)
             batch_targets = targets[batch_idxs]
+            # ensemble-size * (state-dim + reward-dim) * (to_num - from_num)
             batch_targets = np.einsum("abc->acb", batch_targets)
+            # ensemble-size * (state-dim + reward-dim) * (to_num - from_num) * 1
             batch_targets = np.expand_dims(batch_targets, -1)
             return batch_targets
 
@@ -641,12 +682,23 @@ class CausalBNN:
 
         return total_losses
 
+    def get_causal_mask(self):
+        return self.causal_mask
+
+    def set_causal_mask(self, causal_mask):
+        self.causal_mask = causal_mask
+
+    def load_causal_mask_from_file(self, env="InvertedPendulum"):
+        path = os.path.join("causal_graph", "{}_graph.npy".format(env))
+        self.causal_mask = np.load(path)
+
 if __name__ == "__main__":
     from mbpo.models.single_dim_fc import SingleDimFC
     params = {'name': 'CausalBNN', 'num_networks': 7, 'num_elites': 5, 'sess': None}
 
-    hidden_dim, obs_dim, act_dim, rew_dim = 128, 10, 5, 1
-    casual_model = CausalBNN(params, obs_dim, rew_dim)
+    # InvertedPendulum env
+    hidden_dim, obs_dim, act_dim, rew_dim = 128, 4, 1, 1
+    casual_model = CausalBNN(params, act_dim, obs_dim, rew_dim)
 
     # 第一层必须指定input，后面层的input可以自动计算
     casual_model.add(SingleDimFC(hidden_dim, input_dim=obs_dim + act_dim, activation="swish", weight_decay=0.000025))
@@ -659,16 +711,19 @@ if __name__ == "__main__":
     targets = np.ones([5000, obs_dim + rew_dim])
 
     # print(inputs.shape)
-    # casual_model.train(inputs, targets, holdout_ratio=0.1)
+    casual_model.train(inputs, targets, holdout_ratio=0.1)
+    #
+    # outputs = casual_model.predict(inputs, factored=True)
+    # print(np.array(outputs).shape)
+    # # (2, 7, 5000, 11)
+    #
+    # outputs = casual_model.predict(inputs, factored=False)
+    # print(np.array(outputs).shape)
+    # # (2, 5000, 11)
+    #
+    # outputs = casual_model.predict(np.ones([7, obs_dim + rew_dim, 5000, obs_dim + act_dim]))
+    # print(np.array(outputs).shape)
+    # # (2, 7, 5000, 11)
 
-    outputs = casual_model.predict(inputs, factored=True)
-    print(np.array(outputs).shape)
-    # (2, 7, 5000, 11)
-
-    outputs = casual_model.predict(inputs, factored=False)
-    print(np.array(outputs).shape)
-    # (2, 5000, 11)
-
-    outputs = casual_model.predict(np.ones([7, obs_dim + rew_dim, 5000, obs_dim + act_dim]))
-    print(np.array(outputs).shape)
-    # (2, 7, 5000, 11)
+    # casual_model.load_causal_mask_from_file()
+    # casual_model.mask_inputs(np.ones([7, obs_dim + rew_dim, 32, obs_dim + act_dim]))

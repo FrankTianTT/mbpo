@@ -339,6 +339,7 @@ class BNN:
         inputs, holdout_inputs = inputs[permutation[num_holdout:]], inputs[permutation[:num_holdout]]
         targets, holdout_targets = targets[permutation[num_holdout:]], targets[permutation[:num_holdout]]
 
+        # 使用numpy平铺
         holdout_inputs = np.tile(holdout_inputs[None], [self.num_nets, 1, 1])
         holdout_targets = np.tile(holdout_targets[None], [self.num_nets, 1, 1])
 
